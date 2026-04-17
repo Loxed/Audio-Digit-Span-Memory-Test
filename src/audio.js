@@ -5,10 +5,24 @@ import { state } from './state.js';
 // Audio library — built from Vite's eager glob
 // ---------------------------------------------------------------------------
 
-const rawAudioModules = import.meta.glob('../audio/*/chiffre_*.aiff', {
-  eager: true,
-  import: 'default',
-});
+const AUDIO_EXTENSION_PRIORITY = ['aiff', 'aif', 'wav', 'mp3', 'ogg', 'opus', 'm4a', 'webm'];
+const AUDIO_EXTENSION_RANK = new Map(AUDIO_EXTENSION_PRIORITY.map((ext, index) => [ext, index]));
+const AUDIO_FILE_PATTERN = new RegExp(
+  `(?:^|/)audio/([^/]+)/chiffre_(\\d)\\.(${AUDIO_EXTENSION_PRIORITY.join('|')})$`,
+  'i'
+);
+const SUPPORTED_AUDIO_HINT = AUDIO_EXTENSION_PRIORITY.map(ext => `.${ext}`).join(', ');
+
+const rawAudioModules = {
+  ...import.meta.glob('../audio/*/chiffre_[0-9].aiff', { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].aif',  { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].wav',  { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].mp3',  { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].ogg',  { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].opus', { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].m4a',  { eager: true, import: 'default' }),
+  ...import.meta.glob('../audio/*/chiffre_[0-9].webm', { eager: true, import: 'default' }),
+};
 
 export const audioLibrary = buildAudioLibrary(rawAudioModules);
 export const voiceOptions = getVoiceOptions();
@@ -26,14 +40,27 @@ function buildAudioLibrary(modules) {
   const library = {};
   Object.entries(modules).forEach(([rawPath, source]) => {
     const p = rawPath.replace(/\\/g, '/');
-    const match = p.match(/(?:^|\/)audio\/([^/]+)\/chiffre_(\d)\.aiff$/);
+    const match = p.match(AUDIO_FILE_PATTERN);
     if (!match) return;
     const voice = match[1];
     const digit = Number(match[2]);
+    const extension = match[3].toLowerCase();
+
     library[voice] ??= {};
-    library[voice][digit] = source;
+    const existing = library[voice][digit];
+    if (existing && getAudioExtensionRank(existing.extension) <= getAudioExtensionRank(extension)) return;
+
+    library[voice][digit] = {
+      source,
+      extension,
+      relativePath: `audio/${voice}/chiffre_${digit}.${extension}`,
+    };
   });
   return library;
+}
+
+function getAudioExtensionRank(extension) {
+  return AUDIO_EXTENSION_RANK.get(extension) ?? Number.MAX_SAFE_INTEGER;
 }
 
 function getVoiceOptions() {
@@ -80,7 +107,7 @@ export async function ensureAudioContext() {
 }
 
 // ---------------------------------------------------------------------------
-// AIFF parser
+// AIFF fallback parser
 // ---------------------------------------------------------------------------
 
 function readAscii(view, offset, length) {
@@ -176,6 +203,62 @@ function parseAiffBuffer(arrayBuffer) {
   return { channelData, channelCount, frameCount: safeFrameCount, sampleRate: Math.max(1, Math.round(sampleRate)) };
 }
 
+function createAudioBufferFromParsed(ctx, parsed) {
+  const audioBuffer = ctx.createBuffer(parsed.channelCount, parsed.frameCount, parsed.sampleRate);
+  parsed.channelData.forEach((ch, i) => audioBuffer.copyToChannel(ch, i));
+  return audioBuffer;
+}
+
+function trimLeadingZeroPadding(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  let start = 0;
+  while (start < bytes.length && bytes[start] === 0) start++;
+  if (start === 0 || start >= bytes.length) return null;
+  return bytes.slice(start).buffer;
+}
+
+function decodeAudioDataCompat(ctx, arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const once = callback => value => {
+      if (settled) return;
+      settled = true;
+      callback(value);
+    };
+
+    try {
+      const maybePromise = ctx.decodeAudioData(arrayBuffer, once(resolve), once(reject));
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        maybePromise.then(once(resolve), once(reject));
+      }
+    } catch (err) {
+      once(reject)(err);
+    }
+  });
+}
+
+async function decodeAudioAsset(asset, arrayBuffer) {
+  const ctx = await ensureAudioContext();
+
+  try {
+    return await decodeAudioDataCompat(ctx, arrayBuffer.slice(0));
+  } catch {
+    const trimmedBuffer = trimLeadingZeroPadding(arrayBuffer);
+    if (trimmedBuffer) {
+      try {
+        return await decodeAudioDataCompat(ctx, trimmedBuffer);
+      } catch {
+        // Fall through to format-specific fallback / final error below.
+      }
+    }
+
+    if (asset.extension === 'aiff' || asset.extension === 'aif') {
+      return createAudioBufferFromParsed(ctx, parseAiffBuffer(arrayBuffer));
+    }
+    throw new Error(`Impossible de décoder ${asset.relativePath}. Formats pris en charge : ${SUPPORTED_AUDIO_HINT}.`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Decode & cache
 // ---------------------------------------------------------------------------
@@ -186,15 +269,15 @@ export async function decodeDigitAudio(voice, digit) {
   if (decodedAudioPromiseCache.has(key)) return decodedAudioPromiseCache.get(key);
 
   const promise = (async () => {
-    const source = audioLibrary[voice]?.[digit];
-    if (!source) throw new Error(`Audio introuvable : audio/${voice}/chiffre_${digit}.aiff`);
-    const response = await fetch(source);
-    if (!response.ok) throw new Error(`Impossible de charger audio/${voice}/chiffre_${digit}.aiff`);
+    const asset = audioLibrary[voice]?.[digit];
+    if (!asset) {
+      throw new Error(`Audio introuvable pour ${voice}/${digit}. Nom attendu : chiffre_${digit} avec l'une des extensions ${SUPPORTED_AUDIO_HINT}.`);
+    }
+
+    const response = await fetch(asset.source);
+    if (!response.ok) throw new Error(`Impossible de charger ${asset.relativePath}`);
     const arrayBuffer = await response.arrayBuffer();
-    const parsed      = parseAiffBuffer(arrayBuffer);
-    const ctx         = await ensureAudioContext();
-    const audioBuffer = ctx.createBuffer(parsed.channelCount, parsed.frameCount, parsed.sampleRate);
-    parsed.channelData.forEach((ch, i) => audioBuffer.copyToChannel(ch, i));
+    const audioBuffer = await decodeAudioAsset(asset, arrayBuffer);
     decodedAudioBufferCache.set(key, audioBuffer);
     decodedAudioPromiseCache.delete(key);
     return audioBuffer;

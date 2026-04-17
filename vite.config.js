@@ -190,6 +190,6 @@ function resultsPersistencePlugin() {
 }
 
 export default defineConfig({
-  assetsInclude: ['**/*.aiff'],
+  assetsInclude: /\.(aiff|aif|wav|mp3|ogg|opus|m4a|webm)$/i,
   plugins: [resultsPersistencePlugin()],
 });

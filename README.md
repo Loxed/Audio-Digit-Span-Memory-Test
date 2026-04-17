@@ -50,6 +50,7 @@ round,question,expected_answer,answer,correct
 
 ## Notes
 
-- Audio files are stored in `audio/`.
+- Audio files are stored in `audio/<voice>/` and must be named `chiffre_0.<ext>` through `chiffre_9.<ext>`.
+- Supported audio formats include `.aiff`, `.aif`, `.wav`, `.mp3`, `.ogg`, `.opus`, `.m4a`, and `.webm`.
 - Results are stored in `resultats/`.
 - Internal saving works when the app is run through Vite (`npm run dev` or `npm run preview`).
