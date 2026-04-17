@@ -768,8 +768,16 @@ function setSaveStatus(message, tone = '') {
 }
 
 function buildResultPayload(name) {
+  const suffixMap = {
+    forward: '_forward',
+    ordering: '_ordering',
+  };
+
+  const suffix = suffixMap[state.testMode] || '';
+
   return {
     name,
+    filename: `${name}${suffix}`,   // ← nouveau champ : "leo_forward"
     score: getScore(),
     roundsWon: state.totalCorrect,
     finalLevel: state.level,
@@ -777,10 +785,11 @@ function buildResultPayload(name) {
     voice: state.voice,
     debugVisualMode: state.debugVisualMode,
     savedAt: new Date().toISOString(),
-    filenameSuffix: suffixMap[state.testMode] || '',
+    filenameSuffix: suffix,
     rounds: state.roundHistory.map(round => ({ ...round })),
   };
 }
+
 
 async function parseJsonResponse(response) {
   const responseText = await response.text();

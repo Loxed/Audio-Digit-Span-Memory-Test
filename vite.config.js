@@ -9,7 +9,6 @@ function escapeCsv(value) {
   if (!/[",\n\r]/.test(stringValue)) {
     return stringValue;
   }
-
   return `"${stringValue.replace(/"/g, '""')}"`;
 }
 
@@ -21,14 +20,12 @@ function toSafeFileName(name) {
   const sanitizedName = asciiName
     .replace(/[^a-z0-9_-]+/g, '_')
     .replace(/^_+|_+$/g, '');
-
   return sanitizedName || 'joueur';
 }
 
 function getNumericMetadataValue(csvText, key) {
   const match = csvText.match(new RegExp(`^${key},([^\\r\\n]+)$`, 'm'));
   if (!match) return 0;
-
   const rawValue = match[1].replace(/^"|"$/g, '').trim();
   const numericValue = Number(rawValue);
   return Number.isFinite(numericValue) ? numericValue : 0;
@@ -65,20 +62,13 @@ function buildCsvContent(payload) {
 function readJsonBody(request) {
   return new Promise((resolve, reject) => {
     let body = '';
-
     request.setEncoding('utf8');
-    request.on('data', chunk => {
-      body += chunk;
-    });
+    request.on('data', chunk => { body += chunk; });
     request.on('end', () => {
-      if (!body.trim()) {
-        resolve({});
-        return;
-      }
-
+      if (!body.trim()) { resolve({}); return; }
       try {
         resolve(JSON.parse(body));
-      } catch (error) {
+      } catch {
         reject(new Error('La requete doit contenir un JSON valide.'));
       }
     });
@@ -98,29 +88,33 @@ function normalizePayload(rawPayload) {
     throw new Error('Le nom est obligatoire pour enregistrer le resultat.');
   }
 
-  const score = Number(rawPayload.score);
-  const roundsWon = Number(rawPayload.roundsWon);
+  const score      = Number(rawPayload.score);
+  const roundsWon  = Number(rawPayload.roundsWon);
   const finalLevel = Number(rawPayload.finalLevel);
-  const testMode = typeof rawPayload.testMode === 'string' ? rawPayload.testMode : 'forward';
-  const voice = typeof rawPayload.voice === 'string' ? rawPayload.voice : '';
-  const savedAt = typeof rawPayload.savedAt === 'string' ? rawPayload.savedAt : new Date().toISOString();
-  const rounds = Array.isArray(rawPayload.rounds) ? rawPayload.rounds : [];
+  const testMode   = typeof rawPayload.testMode === 'string' ? rawPayload.testMode : 'forward';
+  const voice      = typeof rawPayload.voice === 'string' ? rawPayload.voice : '';
+  const savedAt    = typeof rawPayload.savedAt === 'string' ? rawPayload.savedAt : new Date().toISOString();
+  const rounds     = Array.isArray(rawPayload.rounds) ? rawPayload.rounds : [];
+
+  const suffixMap  = { forward: '_forward', ordering: '_ordering' };
+  const filenameSuffix = suffixMap[testMode] ?? '';
 
   return {
     name,
+    filenameSuffix,
     testMode,
-    score: Number.isFinite(score) ? score : 0,
-    roundsWon: Number.isFinite(roundsWon) ? roundsWon : 0,
+    score:      Number.isFinite(score)      ? score      : 0,
+    roundsWon:  Number.isFinite(roundsWon)  ? roundsWon  : 0,
     finalLevel: Number.isFinite(finalLevel) ? finalLevel : 0,
     voice,
     debugVisualMode: Boolean(rawPayload.debugVisualMode),
     savedAt,
     rounds: rounds.map((round, index) => ({
-      round: Number.isFinite(Number(round?.round)) ? Number(round.round) : index + 1,
-      question: String(round?.question ?? ''),
+      round:          Number.isFinite(Number(round?.round)) ? Number(round.round) : index + 1,
+      question:       String(round?.question       ?? ''),
       expectedAnswer: String(round?.expectedAnswer ?? ''),
-      answer: String(round?.answer ?? ''),
-      correct: Boolean(round?.correct),
+      answer:         String(round?.answer         ?? ''),
+      correct:        Boolean(round?.correct),
     })),
   };
 }
@@ -135,10 +129,10 @@ function resultsPersistencePlugin() {
         return;
       }
 
-      const payload = normalizePayload(await readJsonBody(request));
+      const payload    = normalizePayload(await readJsonBody(request));
       const resultsDir = path.resolve(rootDir, 'resultats');
-      const fileName = `${toSafeFileName(payload.name)}.csv`;
-      const filePath = path.join(resultsDir, fileName);
+      const fileName   = `${toSafeFileName(payload.name)}${payload.filenameSuffix}.csv`;
+      const filePath   = path.join(resultsDir, fileName);
 
       await mkdir(resultsDir, { recursive: true });
 
@@ -150,16 +144,11 @@ function resultsPersistencePlugin() {
           getNumericMetadataValue(existingCsv, 'score')
         );
       } catch (error) {
-        if (error?.code !== 'ENOENT') {
-          throw error;
-        }
+        if (error?.code !== 'ENOENT') throw error;
       }
 
-      const highScore = Math.max(previousHighScore, payload.score);
-      const csvContent = buildCsvContent({
-        ...payload,
-        highScore,
-      });
+      const highScore  = Math.max(previousHighScore, payload.score);
+      const csvContent = buildCsvContent({ ...payload, highScore });
 
       await writeFile(filePath, csvContent, 'utf8');
 
@@ -171,7 +160,7 @@ function resultsPersistencePlugin() {
       });
     } catch (error) {
       sendJson(response, 400, {
-        error: error instanceof Error ? error.message : 'Impossible d’enregistrer le resultat.',
+        error: error instanceof Error ? error.message : "Impossible d'enregistrer le resultat.",
       });
     }
   };
@@ -184,15 +173,9 @@ function resultsPersistencePlugin() {
 
   return {
     name: 'results-persistence',
-    configResolved(config) {
-      rootDir = path.resolve(config.root);
-    },
-    configureServer(server) {
-      attachMiddleware(server);
-    },
-    configurePreviewServer(server) {
-      attachMiddleware(server);
-    },
+    configResolved(config) { rootDir = path.resolve(config.root); },
+    configureServer(server)        { attachMiddleware(server); },
+    configurePreviewServer(server) { attachMiddleware(server); },
   };
 }
 
