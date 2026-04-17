@@ -1,5 +1,9 @@
 const DIGIT_STEP_MS = 1000;
 const ROUND_BREAK_MS = 1200;
+const LIVES_PER_GAME = 2;
+const REQUIRED_CORRECT_ROUNDS_PER_LEVEL = 2;
+const ACTIVE_VOICE = 'thomas';
+const DEBUG_VISUAL_MODE = false;
 const PREFERRED_VOICE_ORDER = ['thomas', 'amelie'];
 const VOICE_LABELS = {
   thomas: 'Thomas',
@@ -22,14 +26,16 @@ const state = {
   phase: 'welcome',
   sequence: [],
   answer: [],
+  roundHistory: [],
   level: 3,
-  lives: 2,
+  lives: LIVES_PER_GAME,
+  winsAtCurrentLevel: 0,
   maxLevel: 2,
   totalCorrect: 0,
   displayIndex: 0,
   pendingTimeouts: [],
-  voice: voiceOptions[0] ?? 'thomas',
-  debugVisualMode: false,
+  voice: ACTIVE_VOICE,
+  debugVisualMode: DEBUG_VISUAL_MODE,
   activeAudio: null,
   audioWarning: '',
 };
@@ -145,11 +151,7 @@ function getScore() {
   return state.maxLevel;
 }
 
-function updateTopbar() {
-  $('tb-level').textContent = state.level;
-  $('tb-best').textContent = state.maxLevel > 2 ? state.maxLevel : '—';
-  $('tb-lives').textContent = '●'.repeat(state.lives) + '○'.repeat(Math.max(0, 2 - state.lives));
-}
+function updateTopbar() {}
 
 function generateSequence(length) {
   const sequence = [];
@@ -174,12 +176,12 @@ function updateAudioConfigStatus() {
 
   const missingDigits = getMissingDigits(state.voice);
   if (missingDigits.length === 0) {
-    statusEl.textContent = `${getVoiceLabel(state.voice)} pret : 10 fichiers audio detectes.`;
-    statusEl.className = 'setting-note success';
+    statusEl.textContent = '';
+    statusEl.className = 'setting-note';
     return;
   }
 
-  statusEl.textContent = `Pack ${getVoiceLabel(state.voice)} incomplet. Fichiers manquants : ${missingDigits.join(', ')}.`;
+  statusEl.textContent = `Pack audio incomplet pour ${getVoiceLabel(state.voice)}. Fichiers manquants : ${missingDigits.join(', ')}.`;
   statusEl.className = 'setting-note warning';
 }
 
@@ -189,34 +191,6 @@ function setAudioConfigWarning(message) {
 
   statusEl.textContent = message;
   statusEl.className = 'setting-note warning';
-}
-
-function renderVoiceSelector() {
-  const voiceSelector = $('voice-selector');
-  if (!voiceSelector) return;
-
-  voiceSelector.innerHTML = '';
-
-  voiceOptions.forEach(voice => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `option-tab${state.voice === voice ? ' active' : ''}`;
-    button.dataset.voice = voice;
-    button.textContent = getVoiceLabel(voice);
-    button.addEventListener('click', () => {
-      state.voice = voice;
-      updateVoiceSelector();
-      updateAudioConfigStatus();
-      updateDisplayMeta();
-    });
-    voiceSelector.appendChild(button);
-  });
-}
-
-function updateVoiceSelector() {
-  document.querySelectorAll('.option-tab[data-voice]').forEach(button => {
-    button.classList.toggle('active', button.dataset.voice === state.voice);
-  });
 }
 
 function updateDisplayMode() {
@@ -229,8 +203,8 @@ function updateDisplayMode() {
 
   if (displayPlaceholder) {
     displayPlaceholder.textContent = state.debugVisualMode
-      ? `Lecture audio ${getVoiceLabel(state.voice)} + affichage debug`
-      : `Lecture audio ${getVoiceLabel(state.voice)} en cours`;
+      ? 'Lecture audio + affichage debug'
+      : 'Lecture audio en cours';
   }
 
   syncPlaybackDigit();
@@ -250,7 +224,7 @@ function updateDisplayMeta() {
   const displayMeta = $('display-level');
   if (!displayMeta) return;
 
-  displayMeta.textContent = `Niveau ${state.level} · ${getVoiceLabel(state.voice)} · ${pluralizeDigits(state.level)}`;
+  displayMeta.textContent = 'Ecoutez la sequence';
   updateDisplayMode();
 }
 
@@ -516,7 +490,6 @@ function initWelcome() {
   resetTransientFlow();
   showScreen('welcome');
   updateAudioConfigStatus();
-  updateVoiceSelector();
   updateDisplayMode();
 }
 
@@ -619,7 +592,7 @@ function showNextDigit() {
 function startInput() {
   resetTransientFlow();
   showScreen('input');
-  $('input-prompt').textContent = `Retapez les ${pluralizeDigits(state.level)} entendus, puis validez.`;
+  $('input-prompt').textContent = 'Retapez la sequence entendue, puis validez.';
   renderAnswer();
   updateSubmitButton();
 }
@@ -667,9 +640,19 @@ function submitAnswer() {
   showTransition(isCorrect);
 }
 
+function recordRoundResult(isCorrect) {
+  state.roundHistory.push({
+    round: state.roundHistory.length + 1,
+    question: state.sequence.join(''),
+    answer: state.answer.join(''),
+    correct: isCorrect,
+  });
+}
+
 function showTransition(isCorrect) {
   resetTransientFlow();
   showScreen('transition');
+  recordRoundResult(isCorrect);
 
   const willEndGame = !isCorrect && state.lives === 1;
   $('transition-title').textContent = willEndGame ? 'Fin de l’epreuve' : 'Reponse enregistree';
@@ -681,7 +664,11 @@ function showTransition(isCorrect) {
     if (isCorrect) {
       state.totalCorrect += 1;
       state.maxLevel = Math.max(state.maxLevel, state.level);
-      state.level += 1;
+      state.winsAtCurrentLevel += 1;
+      if (state.winsAtCurrentLevel >= REQUIRED_CORRECT_ROUNDS_PER_LEVEL) {
+        state.level += 1;
+        state.winsAtCurrentLevel = 0;
+      }
       updateTopbar();
       startDisplay();
       return;
@@ -705,10 +692,9 @@ function showGameOver() {
 
   $('final-score').textContent = getScore();
   $('stat-rounds').textContent = state.totalCorrect;
-  $('stat-best').textContent = getScore();
   $('player-name').value = '';
   setSaveStatus(
-    'Choisissez un fichier JSON existant pour y ajouter ce score, ou creez-en un nouveau.',
+    'Saisissez votre nom pour enregistrer le resultat dans le dossier resultats/.',
     'info'
   );
 
@@ -719,8 +705,10 @@ function resetGameState() {
   resetTransientFlow();
   state.sequence = [];
   state.answer = [];
+  state.roundHistory = [];
   state.level = 3;
-  state.lives = 2;
+  state.lives = LIVES_PER_GAME;
+  state.winsAtCurrentLevel = 0;
   state.maxLevel = 2;
   state.totalCorrect = 0;
   state.displayIndex = 0;
@@ -735,40 +723,28 @@ function setSaveStatus(message, tone = '') {
   saveStatus.className = `save-status${tone ? ` ${tone}` : ''}`;
 }
 
-function normalizeStoredScores(rawText) {
-  if (!rawText.trim()) return [];
-
-  const parsed = JSON.parse(rawText);
-  if (parsed === null) return [];
-  if (Array.isArray(parsed)) return parsed;
-  if (typeof parsed === 'object') return [parsed];
-
-  throw new Error('Le fichier selectionne doit contenir un objet JSON ou un tableau JSON.');
-}
-
-function buildScoreEntry(name) {
+function buildResultPayload(name) {
   return {
     name,
     score: getScore(),
     roundsWon: state.totalCorrect,
     finalLevel: state.level,
-    livesRemaining: state.lives,
     voice: state.voice,
     debugVisualMode: state.debugVisualMode,
     savedAt: new Date().toISOString(),
+    rounds: state.roundHistory.map(round => ({ ...round })),
   };
 }
 
-function downloadJsonFallback(entries) {
-  const blob = new Blob([JSON.stringify(entries, null, 2)], {
-    type: 'application/json',
-  });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'digit-span-scores.json';
-  link.click();
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+async function parseJsonResponse(response) {
+  const responseText = await response.text();
+  if (!responseText) return {};
+
+  try {
+    return JSON.parse(responseText);
+  } catch (error) {
+    throw new Error('La reponse du serveur est invalide.');
+  }
 }
 
 async function saveScore() {
@@ -783,56 +759,35 @@ async function saveScore() {
   }
 
   saveButton.disabled = true;
-  setSaveStatus('Enregistrement du score...', 'info');
+  setSaveStatus('Enregistrement du resultat dans resultats/...', 'info');
 
   try {
-    const entry = buildScoreEntry(name);
+    const response = await fetch('/api/results', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildResultPayload(name)),
+    });
+    const result = await parseJsonResponse(response);
 
-    if ('showSaveFilePicker' in window) {
-      const fileHandle = await window.showSaveFilePicker({
-        suggestedName: 'digit-span-scores.json',
-        types: [
-          {
-            description: 'Fichier JSON',
-            accept: {
-              'application/json': ['.json'],
-            },
-          },
-        ],
-      });
-
-      let scores = [];
-
-      try {
-        const file = await fileHandle.getFile();
-        scores = normalizeStoredScores(await file.text());
-      } catch (error) {
-        if (error.name !== 'NotFoundError') {
-          if (error instanceof SyntaxError) {
-            throw new Error('Le fichier selectionne ne contient pas un JSON valide.');
-          }
-          throw error;
-        }
-      }
-
-      scores.push(entry);
-
-      const writable = await fileHandle.createWritable();
-      await writable.write(JSON.stringify(scores, null, 2));
-      await writable.close();
-
-      setSaveStatus(`Score enregistre pour ${name}.`, 'success');
-      return;
+    if (!response.ok) {
+      throw new Error(result.error || 'Impossible d’enregistrer le resultat.');
     }
 
-    downloadJsonFallback([entry]);
+    const highScoreSuffix = Number.isFinite(result.highScore)
+      ? ` High score : ${result.highScore}.`
+      : '';
     setSaveStatus(
-      'Le score a ete telecharge au format JSON. L’ajout automatique a un fichier existant necessite un navigateur compatible.',
-      'info'
+      `Resultat enregistre dans ${result.relativePath}.${highScoreSuffix}`,
+      'success'
     );
   } catch (error) {
-    if (error && error.name === 'AbortError') {
-      setSaveStatus('Enregistrement annule.', 'muted');
+    if (error instanceof TypeError) {
+      setSaveStatus(
+        'Sauvegarde interne indisponible. Lancez l’application avec le serveur Vite pour ecrire dans resultats/.',
+        'error'
+      );
       return;
     }
 
@@ -867,48 +822,17 @@ function buildApp() {
   const app = $('app');
   app.innerHTML = `
     <div id="topbar">
-      <span class="tb-logo">Digit Span</span>
-      <div class="tb-stats">
-        <span class="tb-stat">Niveau<span id="tb-level">—</span></span>
-        <span class="tb-stat">Meilleur<span id="tb-best">—</span></span>
-        <span class="tb-stat">Vies<span id="tb-lives">——</span></span>
-      </div>
+      <span class="tb-logo">Digit Span Memory Test</span>
     </div>
 
     <div id="screen-welcome" class="screen">
       <div class="logo-mark">
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="5" height="5" rx="1"/><rect x="10" y="4" width="5" height="5" rx="1"/><rect x="16" y="4" width="5" height="5" rx="1"/><rect x="4" y="10" width="5" height="5" rx="1"/><rect x="16" y="10" width="5" height="5" rx="1"/><rect x="4" y="16" width="5" height="5" rx="1"/><rect x="10" y="16" width="5" height="5" rx="1"/><rect x="16" y="16" width="5" height="5" rx="1"/></svg>
       </div>
-      <h1>Digit Span</h1>
-      <p class="tagline">L’epreuve se fait en audio. Un chiffre est joue chaque seconde, puis vous retapez la sequence entendue.</p>
+      <h1>Digit Span Memory Test</h1>
+      <p class="tagline">L’expérience est auditive. Un chiffre est dit chaque seconde. Vous devez écrire la séquence que vous avez entendue.</p>
 
-      <div class="info-grid">
-        <div class="info-card"><div class="label">Niveau initial</div><div class="value">3 chiffres</div></div>
-        <div class="info-card"><div class="label">Rythme</div><div class="value">1 audio par seconde</div></div>
-        <div class="info-card"><div class="label">Vies</div><div class="value">2 erreurs</div></div>
-        <div class="info-card"><div class="label">Validation</div><div class="value">Entrer ou Valider</div></div>
-      </div>
-
-      <div class="settings-panel">
-        <div class="setting-card">
-          <div class="setting-label">Voix audio</div>
-          <div class="option-tabs" id="voice-selector"></div>
-        </div>
-
-        <label class="setting-card toggle-row" for="debug-visual-toggle">
-          <div class="toggle-copy">
-            <div class="setting-label">Debug visuel</div>
-            <div class="setting-help">Affiche aussi les chiffres pendant la lecture audio.</div>
-          </div>
-          <span class="toggle-switch">
-            <input id="debug-visual-toggle" type="checkbox" />
-            <span class="toggle-slider"></span>
-          </span>
-        </label>
-
-        <div class="setting-note" id="audio-config-status"></div>
-      </div>
-
+      <p>Vous pouvez utiliser votre clavier ou le clavier virtuel pour entrer les chiffres.</p>
       <button class="btn-primary" id="btn-start">Commencer</button>
     </div>
 
@@ -918,7 +842,7 @@ function buildApp() {
     </div>
 
     <div id="screen-display" class="screen">
-      <div class="display-meta" id="display-level">Niveau 3 · Thomas · 3 chiffres</div>
+      <div class="display-meta" id="display-level">Ecoutez la sequence</div>
       <div class="display-placeholder" id="display-placeholder">Lecture audio en cours</div>
       <div class="digit-container is-hidden" id="digit-container">
         <div class="digit-display" id="digit-display"></div>
@@ -971,17 +895,13 @@ function buildApp() {
           <div class="s-label">Series reussies</div>
           <div class="s-value" id="stat-rounds">0</div>
         </div>
-        <div class="stat-box">
-          <div class="s-label">Meilleur niveau</div>
-          <div class="s-value" id="stat-best">0</div>
-        </div>
       </div>
 
       <div class="save-card">
         <label class="save-label" for="player-name">Nom</label>
         <input class="text-input" id="player-name" type="text" maxlength="60" placeholder="Votre nom" />
         <button class="btn-primary save-btn" id="btn-save-score">Enregistrer le score</button>
-        <p class="save-help">Selectionnez un fichier JSON existant pour ajouter le score, ou creez-en un nouveau.</p>
+        <p class="save-help">Le fichier CSV sera cree automatiquement dans le dossier resultats/ de l’application.</p>
         <div class="save-status" id="save-status" aria-live="polite"></div>
       </div>
 
@@ -992,19 +912,12 @@ function buildApp() {
     </div>
   `;
 
-  renderVoiceSelector();
-
   $('btn-start').addEventListener('click', () => {
     startNewGame();
   });
 
   document.querySelectorAll('.num-btn').forEach(button => {
     button.addEventListener('click', () => inputDigit(Number(button.dataset.digit)));
-  });
-
-  $('debug-visual-toggle').addEventListener('change', event => {
-    state.debugVisualMode = event.target.checked;
-    updateDisplayMode();
   });
 
   $('btn-del').addEventListener('click', deleteDigit);
@@ -1025,8 +938,6 @@ function buildApp() {
       saveScore();
     }
   });
-
-  $('debug-visual-toggle').checked = state.debugVisualMode;
 
   updateTopbar();
   updateAudioConfigStatus();
