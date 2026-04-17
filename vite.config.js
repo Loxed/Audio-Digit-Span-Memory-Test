@@ -38,6 +38,7 @@ function buildCsvContent(payload) {
   const rows = [
     ['metric', 'value'],
     ['player_name', payload.name],
+    ['test_mode', payload.testMode],
     ['score', payload.score],
     ['high_score', payload.highScore],
     ['rounds_won', payload.roundsWon],
@@ -46,10 +47,11 @@ function buildCsvContent(payload) {
     ['debug_visual_mode', payload.debugVisualMode],
     ['saved_at', payload.savedAt],
     [],
-    ['round', 'question', 'answer', 'correct'],
+    ['round', 'question', 'expected_answer', 'answer', 'correct'],
     ...payload.rounds.map(round => [
       round.round,
       round.question,
+      round.expectedAnswer,
       round.answer,
       round.correct,
     ]),
@@ -99,12 +101,14 @@ function normalizePayload(rawPayload) {
   const score = Number(rawPayload.score);
   const roundsWon = Number(rawPayload.roundsWon);
   const finalLevel = Number(rawPayload.finalLevel);
+  const testMode = typeof rawPayload.testMode === 'string' ? rawPayload.testMode : 'forward';
   const voice = typeof rawPayload.voice === 'string' ? rawPayload.voice : '';
   const savedAt = typeof rawPayload.savedAt === 'string' ? rawPayload.savedAt : new Date().toISOString();
   const rounds = Array.isArray(rawPayload.rounds) ? rawPayload.rounds : [];
 
   return {
     name,
+    testMode,
     score: Number.isFinite(score) ? score : 0,
     roundsWon: Number.isFinite(roundsWon) ? roundsWon : 0,
     finalLevel: Number.isFinite(finalLevel) ? finalLevel : 0,
@@ -114,6 +118,7 @@ function normalizePayload(rawPayload) {
     rounds: rounds.map((round, index) => ({
       round: Number.isFinite(Number(round?.round)) ? Number(round.round) : index + 1,
       question: String(round?.question ?? ''),
+      expectedAnswer: String(round?.expectedAnswer ?? ''),
       answer: String(round?.answer ?? ''),
       correct: Boolean(round?.correct),
     })),

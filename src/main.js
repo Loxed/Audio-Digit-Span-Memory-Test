@@ -9,6 +9,16 @@ const VOICE_LABELS = {
   thomas: 'Thomas',
   amelie: 'Amelie',
 };
+const TEST_MODES = {
+  forward: {
+    label: 'Forward',
+    description: 'Retapez exactement la séquence entendue.',
+  },
+  ordering: {
+    label: 'Ordering',
+    description: 'Entrez les chiffres entendus du plus petit au plus grand.',
+  },
+};
 
 const rawAudioModules = import.meta.glob('../audio/*/chiffre_*.aiff', {
   eager: true,
@@ -27,6 +37,7 @@ const state = {
   sequence: [],
   answer: [],
   roundHistory: [],
+  testMode: 'forward',
   level: 3,
   lives: LIVES_PER_GAME,
   winsAtCurrentLevel: 0,
@@ -80,6 +91,10 @@ function getVoiceOptions() {
 
 function getVoiceLabel(voice) {
   return VOICE_LABELS[voice] ?? `${voice.charAt(0).toUpperCase()}${voice.slice(1)}`;
+}
+
+function getTestModeConfig(mode) {
+  return TEST_MODES[mode] ?? TEST_MODES.forward;
 }
 
 function getMissingDigits(voice) {
@@ -153,6 +168,33 @@ function getScore() {
 
 function updateTopbar() {}
 
+function getExpectedSequence(sequence = state.sequence) {
+  if (state.testMode === 'ordering') {
+    return [...sequence].sort((left, right) => left - right);
+  }
+
+  return [...sequence];
+}
+
+function getInputPromptText() {
+  return state.testMode === 'ordering'
+    ? 'Entrez les chiffres entendus du plus petit au plus grand, puis validez.'
+    : 'Retapez la séquence entendue, puis validez.';
+}
+
+function updateModeSelector() {
+  const modeDescription = $('mode-description');
+  const modeConfig = getTestModeConfig(state.testMode);
+
+  document.querySelectorAll('#mode-selector [data-mode]').forEach(button => {
+    button.classList.toggle('active', button.dataset.mode === state.testMode);
+  });
+
+  if (modeDescription) {
+    modeDescription.textContent = modeConfig.description;
+  }
+}
+
 function generateSequence(length) {
   const sequence = [];
   let lastDigit = -1;
@@ -224,7 +266,7 @@ function updateDisplayMeta() {
   const displayMeta = $('display-level');
   if (!displayMeta) return;
 
-  displayMeta.textContent = 'Ecoutez la sequence';
+  displayMeta.textContent = 'Ecoutez la séquence';
   updateDisplayMode();
 }
 
@@ -489,6 +531,7 @@ function playDigitAudio(digit) {
 function initWelcome() {
   resetTransientFlow();
   showScreen('welcome');
+  updateModeSelector();
   updateAudioConfigStatus();
   updateDisplayMode();
 }
@@ -592,7 +635,7 @@ function showNextDigit() {
 function startInput() {
   resetTransientFlow();
   showScreen('input');
-  $('input-prompt').textContent = 'Retapez la sequence entendue, puis validez.';
+  $('input-prompt').textContent = getInputPromptText();
   renderAnswer();
   updateSubmitButton();
 }
@@ -636,7 +679,7 @@ function updateSubmitButton() {
 function submitAnswer() {
   if (state.phase !== 'input' || state.answer.length !== state.level) return;
 
-  const isCorrect = state.answer.join('') === state.sequence.join('');
+  const isCorrect = state.answer.join('') === getExpectedSequence().join('');
   showTransition(isCorrect);
 }
 
@@ -644,6 +687,7 @@ function recordRoundResult(isCorrect) {
   state.roundHistory.push({
     round: state.roundHistory.length + 1,
     question: state.sequence.join(''),
+    expectedAnswer: getExpectedSequence().join(''),
     answer: state.answer.join(''),
     correct: isCorrect,
   });
@@ -729,9 +773,11 @@ function buildResultPayload(name) {
     score: getScore(),
     roundsWon: state.totalCorrect,
     finalLevel: state.level,
+    testMode: state.testMode,
     voice: state.voice,
     debugVisualMode: state.debugVisualMode,
     savedAt: new Date().toISOString(),
+    filenameSuffix: suffixMap[state.testMode] || '',
     rounds: state.roundHistory.map(round => ({ ...round })),
   };
 }
@@ -826,11 +872,19 @@ function buildApp() {
     </div>
 
     <div id="screen-welcome" class="screen">
-      <div class="logo-mark">
-        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="5" height="5" rx="1"/><rect x="10" y="4" width="5" height="5" rx="1"/><rect x="16" y="4" width="5" height="5" rx="1"/><rect x="4" y="10" width="5" height="5" rx="1"/><rect x="16" y="10" width="5" height="5" rx="1"/><rect x="4" y="16" width="5" height="5" rx="1"/><rect x="10" y="16" width="5" height="5" rx="1"/><rect x="16" y="16" width="5" height="5" rx="1"/></svg>
-      </div>
       <h1>Digit Span Memory Test</h1>
       <p class="tagline">L’expérience est auditive. Un chiffre est dit chaque seconde. Vous devez écrire la séquence que vous avez entendue.</p>
+
+      <div class="settings-panel">
+        <div class="setting-card">
+          <div class="setting-label">Mode de test</div>
+          <div class="option-tabs" id="mode-selector">
+            <button class="option-tab active" type="button" data-mode="forward">${TEST_MODES.forward.label}</button>
+            <button class="option-tab" type="button" data-mode="ordering">${TEST_MODES.ordering.label}</button>
+          </div>
+          <div class="setting-help" id="mode-description">${TEST_MODES.forward.description}</div>
+        </div>
+      </div>
 
       <p>Vous pouvez utiliser votre clavier ou le clavier virtuel pour entrer les chiffres.</p>
       <button class="btn-primary" id="btn-start">Commencer</button>
@@ -842,7 +896,7 @@ function buildApp() {
     </div>
 
     <div id="screen-display" class="screen">
-      <div class="display-meta" id="display-level">Ecoutez la sequence</div>
+      <div class="display-meta" id="display-level">Ecoutez la séquence</div>
       <div class="display-placeholder" id="display-placeholder">Lecture audio en cours</div>
       <div class="digit-container is-hidden" id="digit-container">
         <div class="digit-display" id="digit-display"></div>
@@ -853,7 +907,7 @@ function buildApp() {
 
     <div id="screen-input" class="screen">
       <div class="input-header">
-        <div class="prompt" id="input-prompt">Retapez la sequence entendue, puis validez.</div>
+        <div class="prompt" id="input-prompt">Retapez la séquence entendue, puis validez.</div>
         <div class="answer-display" id="answer-display"></div>
       </div>
 
@@ -916,6 +970,13 @@ function buildApp() {
     startNewGame();
   });
 
+  document.querySelectorAll('#mode-selector [data-mode]').forEach(button => {
+    button.addEventListener('click', () => {
+      state.testMode = button.dataset.mode;
+      updateModeSelector();
+    });
+  });
+
   document.querySelectorAll('.num-btn').forEach(button => {
     button.addEventListener('click', () => inputDigit(Number(button.dataset.digit)));
   });
@@ -940,6 +1001,7 @@ function buildApp() {
   });
 
   updateTopbar();
+  updateModeSelector();
   updateAudioConfigStatus();
   updateDisplayMode();
   initWelcome();
