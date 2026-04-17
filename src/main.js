@@ -113,7 +113,7 @@ function buildApp() {
       </div>
 
       <div class="gameover-btns">
-      // <button class="btn-ghost"  id="btn-retry" style="flex:1">Recommencer</button>
+      <button class="btn-ghost"  id="btn-retry" style="flex:1" disabled>Recommencer</button>
       <button class="btn-primary"    id="btn-menu"  style="flex:2">Menu</button>
       </div>
     </div>
