@@ -2,3 +2,5 @@ node_modules/
 dist/
 digit-span-scores.json
 resultats/*.csv
+
+Experiment_dump.md
