@@ -2,7 +2,7 @@ node_modules/
 dist/
 digit-span-scores.json
 resultats/*.csv
-resultats/foward/*.csv
+resultats/forward/*.csv
 resultats/ordering/*.csv
 
 Experiment_dump.md
