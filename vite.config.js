@@ -4,178 +4,188 @@ import { defineConfig } from 'vite';
 
 const RESULTS_ROUTE = '/api/results';
 
+// ---------------------------------------------------------------------------
+// CSV helpers
+// ---------------------------------------------------------------------------
+
 function escapeCsv(value) {
-  const stringValue = String(value ?? '');
-  if (!/[",\n\r]/.test(stringValue)) {
-    return stringValue;
-  }
-  return `"${stringValue.replace(/"/g, '""')}"`;
+  const s = String(value ?? '');
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 function toSafeFileName(name) {
-  const asciiName = name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  const sanitizedName = asciiName
-    .replace(/[^a-z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return sanitizedName || 'joueur';
+  const ascii = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const safe  = ascii.replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return safe || 'joueur';
 }
 
 function getNumericMetadataValue(csvText, key) {
   const match = csvText.match(new RegExp(`^${key},([^\\r\\n]+)$`, 'm'));
   if (!match) return 0;
-  const rawValue = match[1].replace(/^"|"$/g, '').trim();
-  const numericValue = Number(rawValue);
-  return Number.isFinite(numericValue) ? numericValue : 0;
+  const raw = match[1].replace(/^"|"$/g, '').trim();
+  const n   = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function shouldIncludeExpectedAnswer(testMode) {
+  return testMode === 'ordering';
 }
 
 function buildCsvContent(payload) {
+  const includeExpectedAnswer = shouldIncludeExpectedAnswer(payload.testMode);
+  const roundHeader = includeExpectedAnswer
+    ? ['round', 'question', 'expected_answer', 'answer', 'correct']
+    : ['round', 'question', 'answer', 'correct'];
+  const roundRows = payload.rounds.map(r => includeExpectedAnswer
+    ? [r.round, r.question, r.expectedAnswer, r.answer, r.correct]
+    : [r.round, r.question, r.answer, r.correct]
+  );
+
   const rows = [
     ['metric', 'value'],
-    ['player_name', payload.name],
-    ['test_mode', payload.testMode],
-    ['score', payload.score],
-    ['high_score', payload.highScore],
-    ['rounds_won', payload.roundsWon],
-    ['final_level', payload.finalLevel],
-    ['voice', payload.voice],
+    ['player_name',       payload.name],
+    ['test_mode',         payload.testMode],
+    ['score',             payload.score],
+    ['high_score',        payload.highScore],
+    ['rounds_won',        payload.roundsWon],
+    ['final_level',       payload.finalLevel],
+    ['voice',             payload.voice],
     ['debug_visual_mode', payload.debugVisualMode],
-    ['saved_at', payload.savedAt],
+    ['saved_at',          payload.savedAt],
     [],
-    ['round', 'question', 'expected_answer', 'answer', 'correct'],
-    ...payload.rounds.map(round => [
-      round.round,
-      round.question,
-      round.expectedAnswer,
-      round.answer,
-      round.correct,
-    ]),
+    roundHeader,
+    ...roundRows,
   ];
 
-  return `${rows
-    .map(row => (row.length === 0 ? '' : row.map(escapeCsv).join(',')))
-    .join('\n')}\n`;
+  return rows.map(row => row.length === 0 ? '' : row.map(escapeCsv).join(',')).join('\n') + '\n';
 }
 
-function readJsonBody(request) {
+// ---------------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------------
+
+function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    request.setEncoding('utf8');
-    request.on('data', chunk => { body += chunk; });
-    request.on('end', () => {
+    req.setEncoding('utf8');
+    req.on('data',  chunk => { body += chunk; });
+    req.on('end',   ()    => {
       if (!body.trim()) { resolve({}); return; }
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        reject(new Error('La requete doit contenir un JSON valide.'));
-      }
+      try { resolve(JSON.parse(body)); } catch { reject(new Error('La requête doit contenir un JSON valide.')); }
     });
-    request.on('error', reject);
+    req.on('error', reject);
   });
 }
 
-function sendJson(response, statusCode, payload) {
-  response.statusCode = statusCode;
-  response.setHeader('Content-Type', 'application/json; charset=utf-8');
-  response.end(JSON.stringify(payload));
+function sendJson(res, status, payload) {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(payload));
 }
 
-function normalizePayload(rawPayload) {
-  const name = typeof rawPayload?.name === 'string' ? rawPayload.name.trim() : '';
-  if (!name) {
-    throw new Error('Le nom est obligatoire pour enregistrer le resultat.');
-  }
+// ---------------------------------------------------------------------------
+// Payload validation / normalization
+// ---------------------------------------------------------------------------
 
-  const score      = Number(rawPayload.score);
-  const roundsWon  = Number(rawPayload.roundsWon);
-  const finalLevel = Number(rawPayload.finalLevel);
-  const testMode   = typeof rawPayload.testMode === 'string' ? rawPayload.testMode : 'forward';
-  const voice      = typeof rawPayload.voice === 'string' ? rawPayload.voice : '';
-  const savedAt    = typeof rawPayload.savedAt === 'string' ? rawPayload.savedAt : new Date().toISOString();
-  const rounds     = Array.isArray(rawPayload.rounds) ? rawPayload.rounds : [];
+function normalizePayload(raw) {
+  const name = typeof raw?.name === 'string' ? raw.name.trim() : '';
+  if (!name) throw new Error('Le nom est obligatoire pour enregistrer le résultat.');
 
-  const suffixMap  = { forward: '_forward', ordering: '_ordering' };
-  const filenameSuffix = suffixMap[testMode] ?? '';
+  const testMode   = typeof raw.testMode === 'string' ? raw.testMode : 'forward';
+  const score      = Number(raw.score);
+  const roundsWon  = Number(raw.roundsWon);
+  const finalLevel = Number(raw.finalLevel);
+  const voice      = typeof raw.voice === 'string' ? raw.voice : '';
+  const savedAt    = typeof raw.savedAt === 'string' ? raw.savedAt : new Date().toISOString();
+  const rounds     = Array.isArray(raw.rounds) ? raw.rounds : [];
+
+  // Subfolder is derived from testMode — no suffix in filename
+  const validModes = ['forward', 'ordering'];
+  const subfolder  = validModes.includes(testMode) ? testMode : 'forward';
 
   return {
     name,
-    filenameSuffix,
+    subfolder,
     testMode,
-    score:      Number.isFinite(score)      ? score      : 0,
-    roundsWon:  Number.isFinite(roundsWon)  ? roundsWon  : 0,
-    finalLevel: Number.isFinite(finalLevel) ? finalLevel : 0,
+    score:          Number.isFinite(score)      ? score      : 0,
+    roundsWon:      Number.isFinite(roundsWon)  ? roundsWon  : 0,
+    finalLevel:     Number.isFinite(finalLevel) ? finalLevel : 0,
     voice,
-    debugVisualMode: Boolean(rawPayload.debugVisualMode),
+    debugVisualMode: Boolean(raw.debugVisualMode),
     savedAt,
-    rounds: rounds.map((round, index) => ({
-      round:          Number.isFinite(Number(round?.round)) ? Number(round.round) : index + 1,
-      question:       String(round?.question       ?? ''),
-      expectedAnswer: String(round?.expectedAnswer ?? ''),
-      answer:         String(round?.answer         ?? ''),
-      correct:        Boolean(round?.correct),
+    rounds: rounds.map((r, i) => ({
+      round:          Number.isFinite(Number(r?.round)) ? Number(r.round) : i + 1,
+      question:       String(r?.question       ?? ''),
+      expectedAnswer: shouldIncludeExpectedAnswer(testMode) ? String(r?.expectedAnswer ?? '') : '',
+      answer:         String(r?.answer         ?? ''),
+      correct:        Boolean(r?.correct),
     })),
   };
 }
 
+// ---------------------------------------------------------------------------
+// Request handler
+// ---------------------------------------------------------------------------
+
+async function handleSave(req, res, rootDir) {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'Utilisez POST pour enregistrer un résultat.' });
+    return;
+  }
+
+  try {
+    const payload    = normalizePayload(await readJsonBody(req));
+
+    // resultats/forward/<name>.csv  or  resultats/ordering/<name>.csv
+    const resultsDir = path.resolve(rootDir, 'resultats', payload.subfolder);
+    const fileName   = `${toSafeFileName(payload.name)}.csv`;
+    const filePath   = path.join(resultsDir, fileName);
+    const relPath    = `resultats/${payload.subfolder}/${fileName}`;
+
+    await mkdir(resultsDir, { recursive: true });
+
+    let previousHighScore = 0;
+    try {
+      const existing        = await readFile(filePath, 'utf8');
+      previousHighScore     = Math.max(
+        getNumericMetadataValue(existing, 'high_score'),
+        getNumericMetadataValue(existing, 'score')
+      );
+    } catch (err) {
+      if (err?.code !== 'ENOENT') throw err;
+    }
+
+    const highScore  = Math.max(previousHighScore, payload.score);
+    const csvContent = buildCsvContent({ ...payload, highScore });
+
+    await writeFile(filePath, csvContent, 'utf8');
+
+    sendJson(res, 200, { ok: true, fileName, relativePath: relPath, highScore });
+  } catch (err) {
+    sendJson(res, 400, {
+      error: err instanceof Error ? err.message : "Impossible d'enregistrer le résultat.",
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vite plugin
+// ---------------------------------------------------------------------------
+
 function resultsPersistencePlugin() {
   let rootDir = process.cwd();
 
-  const handleSave = async (request, response) => {
-    try {
-      if (request.method !== 'POST') {
-        sendJson(response, 405, { error: 'Utilisez POST pour enregistrer un resultat.' });
-        return;
-      }
-
-      const payload    = normalizePayload(await readJsonBody(request));
-      const resultsDir = path.resolve(rootDir, 'resultats');
-      const fileName   = `${toSafeFileName(payload.name)}${payload.filenameSuffix}.csv`;
-      const filePath   = path.join(resultsDir, fileName);
-
-      await mkdir(resultsDir, { recursive: true });
-
-      let previousHighScore = 0;
-      try {
-        const existingCsv = await readFile(filePath, 'utf8');
-        previousHighScore = Math.max(
-          getNumericMetadataValue(existingCsv, 'high_score'),
-          getNumericMetadataValue(existingCsv, 'score')
-        );
-      } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-      }
-
-      const highScore  = Math.max(previousHighScore, payload.score);
-      const csvContent = buildCsvContent({ ...payload, highScore });
-
-      await writeFile(filePath, csvContent, 'utf8');
-
-      sendJson(response, 200, {
-        ok: true,
-        fileName,
-        relativePath: `resultats/${fileName}`,
-        highScore,
-      });
-    } catch (error) {
-      sendJson(response, 400, {
-        error: error instanceof Error ? error.message : "Impossible d'enregistrer le resultat.",
-      });
-    }
-  };
-
-  const attachMiddleware = server => {
-    server.middlewares.use(RESULTS_ROUTE, (request, response) => {
-      void handleSave(request, response);
+  const attach = server => {
+    server.middlewares.use(RESULTS_ROUTE, (req, res) => {
+      void handleSave(req, res, rootDir);
     });
   };
 
   return {
     name: 'results-persistence',
     configResolved(config) { rootDir = path.resolve(config.root); },
-    configureServer(server)        { attachMiddleware(server); },
-    configurePreviewServer(server) { attachMiddleware(server); },
+    configureServer(server)        { attach(server); },
+    configurePreviewServer(server) { attach(server); },
   };
 }
 
