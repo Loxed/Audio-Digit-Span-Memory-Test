@@ -13,15 +13,43 @@ const AUDIO_FILE_PATTERN = new RegExp(
 );
 const SUPPORTED_AUDIO_HINT = AUDIO_EXTENSION_PRIORITY.map(ext => `.${ext}`).join(', ');
 
+// --- No-build version -------------------------------------------------------
+// The original project used Vite's `import.meta.glob` to auto-discover audio
+// files at build time. Here we replace it with a plain static map so the app runs with
+// no build step and no npm. To add a new voice, just add its 10 files below.
+// (Keys keep the original "../audio/..." shape; values are URLs fetched by the
+// browser, resolved relative to index.html at the project root.)
 const rawAudioModules = {
-  ...import.meta.glob('../audio/*/chiffre_[0-9].aiff', { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].aif',  { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].wav',  { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].mp3',  { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].ogg',  { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].opus', { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].m4a',  { eager: true, import: 'default' }),
-  ...import.meta.glob('../audio/*/chiffre_[0-9].webm', { eager: true, import: 'default' }),
+  '../audio/amelie/chiffre_0.aiff': './audio/amelie/chiffre_0.aiff',
+  '../audio/amelie/chiffre_1.aiff': './audio/amelie/chiffre_1.aiff',
+  '../audio/amelie/chiffre_2.aiff': './audio/amelie/chiffre_2.aiff',
+  '../audio/amelie/chiffre_3.aiff': './audio/amelie/chiffre_3.aiff',
+  '../audio/amelie/chiffre_4.aiff': './audio/amelie/chiffre_4.aiff',
+  '../audio/amelie/chiffre_5.aiff': './audio/amelie/chiffre_5.aiff',
+  '../audio/amelie/chiffre_6.aiff': './audio/amelie/chiffre_6.aiff',
+  '../audio/amelie/chiffre_7.aiff': './audio/amelie/chiffre_7.aiff',
+  '../audio/amelie/chiffre_8.aiff': './audio/amelie/chiffre_8.aiff',
+  '../audio/amelie/chiffre_9.aiff': './audio/amelie/chiffre_9.aiff',
+  '../audio/michelle/chiffre_0.mp3': './audio/michelle/chiffre_0.mp3',
+  '../audio/michelle/chiffre_1.mp3': './audio/michelle/chiffre_1.mp3',
+  '../audio/michelle/chiffre_2.mp3': './audio/michelle/chiffre_2.mp3',
+  '../audio/michelle/chiffre_3.mp3': './audio/michelle/chiffre_3.mp3',
+  '../audio/michelle/chiffre_4.mp3': './audio/michelle/chiffre_4.mp3',
+  '../audio/michelle/chiffre_5.mp3': './audio/michelle/chiffre_5.mp3',
+  '../audio/michelle/chiffre_6.mp3': './audio/michelle/chiffre_6.mp3',
+  '../audio/michelle/chiffre_7.mp3': './audio/michelle/chiffre_7.mp3',
+  '../audio/michelle/chiffre_8.mp3': './audio/michelle/chiffre_8.mp3',
+  '../audio/michelle/chiffre_9.mp3': './audio/michelle/chiffre_9.mp3',
+  '../audio/thomas/chiffre_0.aiff': './audio/thomas/chiffre_0.aiff',
+  '../audio/thomas/chiffre_1.aiff': './audio/thomas/chiffre_1.aiff',
+  '../audio/thomas/chiffre_2.aiff': './audio/thomas/chiffre_2.aiff',
+  '../audio/thomas/chiffre_3.aiff': './audio/thomas/chiffre_3.aiff',
+  '../audio/thomas/chiffre_4.aiff': './audio/thomas/chiffre_4.aiff',
+  '../audio/thomas/chiffre_5.aiff': './audio/thomas/chiffre_5.aiff',
+  '../audio/thomas/chiffre_6.aiff': './audio/thomas/chiffre_6.aiff',
+  '../audio/thomas/chiffre_7.aiff': './audio/thomas/chiffre_7.aiff',
+  '../audio/thomas/chiffre_8.aiff': './audio/thomas/chiffre_8.aiff',
+  '../audio/thomas/chiffre_9.aiff': './audio/thomas/chiffre_9.aiff',
 };
 
 export const audioLibrary = buildAudioLibrary(rawAudioModules);

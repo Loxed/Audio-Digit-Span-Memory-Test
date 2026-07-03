@@ -11,20 +11,18 @@ The app plays a sequence of digits, one per second. The player listens and compl
 
 At the end of the game, the player can enter their name and save the result inside the application. A CSV file is written to `resultats/<name>.csv`.
 
-## Run locally
+# Running without npm / Node
+ 
+This copy of the project has been adjusted so it runs with Python 3 only. 
 
-```bash
-npm install
-npm run dev
-```
-
-Then open the local Vite URL in your browser.
-
-## Build
-
-```bash
-npm run build
-```
+## How to run
+ 
+1. From this folder, start the app:
+       `python3 serve.py`
+ 
+2. Open the printed address in your browser:
+       `http://127.0.0.1:5173/`
+ 
 
 ## Results format
 
